@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chill Virtual Cat 3D</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1a1a2e;
+        }
+
+        #webgl-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* UI Overlay */
+        .ui-container {
+            position: absolute;
+            z-index: 10;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(10px);
+            padding: 12px 24px;
+            border-radius: 30px;
+            align-self: center;
+            color: #fff;
+            font-weight: bold;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .food-menu {
+            align-self: center;
+            margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(12px);
+            padding: 12px 20px;
+            border-radius: 40px;
+            display: flex;
+            gap: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            pointer-events: auto;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .food-btn {
+            background: rgba(255, 255, 255, 0.85);
+            border: none;
+            outline: none;
+            padding: 10px 18px;
+            border-radius: 25px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #333;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .food-btn:hover {
+            transform: translateY(-3px) scale(1.05);
+            background: #fff;
+            box-shadow: 0 6px 15px rgba(0,0,0,0.2);
+        }
+
+        .food-btn:active {
+            transform: translateY(0) scale(0.95);
+        }
+
+        .control-btn {
+            background: rgba(255,255,255,0.8);
+            border: none;
+            padding: 6px 14px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            color: #333;
+            transition: 0.2s;
+        }
+
+        .control-btn:hover {
+            background: #fff;
+        }
+
+        /* Status bubble above cat */
+        #status-bubble {
+            position: absolute;
+            padding: 8px 16px;
+            background: white;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            transform: translate(-50%, -100%);
+            z-index: 5;
+        }
+
+        #status-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 8px 8px 0;
+            border-style: solid;
+            border-color: white transparent;
+            display: block;
+            width: 0;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="webgl-container"></div>
+    
+    <div id="status-bubble">🐾 Meo meo...</div>
+
+    <div class="ui-container">
+        <div class="header">
+            <span>🐱 Chill Virtual Cat 3D</span>
+            <button class="control-btn" id="btn-env">🌳 Đổi Bối Cảnh</button>
+            <button class="control-btn" id="btn-audio">🔊 Nhạc Thư Giãn: Bật</button>
+        </div>
+
+        <div class="food-menu">
+            <button class="food-btn" onclick="feedCat('durian')">🍈 Sầu Riêng</button>
+            <button class="food-btn" onclick="feedCat('fish')">🐟 Con Cá</button>
+            <button class="food-btn" onclick="feedCat('pate')">🥫 Pate</button>
+            <button class="food-btn" onclick="feedCat('sausage')">🌭 Xúc Xích</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. SETUP THƯ VIỆN & KHUNG CẢNH 3D ---
+        const container = document.getElementById('webgl-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xdbe9f4);
+        scene.fog = new THREE.FogExp2(0xdbe9f4, 0.03);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 10);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05;
+        controls.minDistance = 3;
+        controls.maxDistance = 18;
+
+        // --- 2. ÁNH SÁNG & MÔI TRƯỜNG ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff5e6, 1.2);
+        dirLight.position.set(8, 12, 8);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 25;
+        const d = 10;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        scene.add(dirLight);
+
+        // Mặt đất
+        const floorGeo = new THREE.PlaneGeometry(30, 30);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0xa8d5e2, roughness: 0.8 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Môi trường trang trí (Căn phòng / Công viên)
+        const envGroup = new THREE.Group();
+        scene.add(envGroup);
+        let isParkMode = false;
+
+        function buildEnvironment() {
+            // Xóa môi trường cũ
+            while(envGroup.children.length > 0){ 
+                envGroup.remove(envGroup.children[0]); 
+            }
+
+            if (!isParkMode) {
+                // Room mode
+                scene.background.set(0xebdccb);
+                scene.fog.color.set(0xebdccb);
+                floorMat.color.set(0x8d6e63); // Sàn gỗ
+
+                // Thảm
+                const rugGeo = new THREE.CylinderGeometry(3.5, 3.5, 0.02, 32);
+                const rugMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 1 });
+                const rug = new THREE.Mesh(rugGeo, rugMat);
+                rug.position.y = 0.01;
+                rug.receiveShadow = true;
+                envGroup.add(rug);
+
+                // Ghế Sofa nhỏ
+                const sofaGeo = new THREE.BoxGeometry(3, 1, 1.5);
+                const sofaMat = new THREE.MeshStandardMaterial({ color: 0xe07a5f });
+                const sofa = new THREE.Mesh(sofaGeo, sofaMat);
+                sofa.position.set(-4, 0.5, -4);
+                sofa.castShadow = true;
+                sofa.receiveShadow = true;
+                envGroup.add(sofa);
+            } else {
+                // Park mode
+                scene.background.set(0xa8dead);
+                scene.fog.color.set(0xa8dead);
+                floorMat.color.set(0x76c893); // Thảm cỏ
+
+                // Cây cối xung quanh
+                for(let i = 0; i < 8; i++) {
+                    const tree = new THREE.Group();
+                    const trunk = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.2, 0.3, 1.5),
+                        new THREE.MeshStandardMaterial({ color: 0x5c4033 })
+                    );
+                    trunk.position.y = 0.75;
+                    trunk.castShadow = true;
+                    
+                    const leaves = new THREE.Mesh(
+                        new THREE.ConeGeometry(1.2, 2.5, 8),
+                        new THREE.MeshStandardMaterial({ color: 0x2d6a4f })
+                    );
+                    leaves.position.y = 2.2;
+                    leaves.castShadow = true;
+
+                    tree.add(trunk, leaves);
+                    const angle = (i / 8) * Math.PI * 2;
+                    tree.position.set(Math.cos(angle) * 8, 0, Math.sin(angle) * 8);
+                    envGroup.add(tree);
+                }
+            }
+        }
+        buildEnvironment();
+
+        // --- 3. TẠO HÌNH CẬU MÈO 3D (LOW-POLY CHIBI) ---
+        function createCat() {
+            const cat = new THREE.Group();
+            const catMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.5 }); // Màu cam
+            const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+
+            // Thân
+            const bodyGeo = new THREE.SphereGeometry(0.7, 16, 16);
+            bodyGeo.scale(1, 0.9, 1.3);
+            const body = new THREE.Mesh(bodyGeo, catMat);
+            body.position.y = 0.7;
+            body.castShadow = true;
+            cat.add(body);
+
+            // Bụng trắng
+            const bellyGeo = new THREE.SphereGeometry(0.5, 16, 16);
+            bellyGeo.scale(0.8, 0.8, 1);
+            const belly = new THREE.Mesh(bellyGeo, whiteMat);
+            belly.position.set(0, 0.65, 0.25);
+            cat.add(belly);
+
+            // Đầu
+            const headGeo = new THREE.SphereGeometry(0.65, 16, 16);
+            const head = new THREE.Mesh(headGeo, catMat);
+            head.position.set(0, 1.3, 0.6);
+            head.castShadow = true;
+            cat.add(head);
+
+            // Mắt
+            const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
+            const leftEye = new THREE.Mesh(eyeGeo, darkMat);
+            leftEye.position.set(-0.22, 1.38, 1.18);
+            const rightEye = new THREE.Mesh(eyeGeo, darkMat);
+            rightEye.position.set(0.22, 1.38, 1.18);
+            cat.add(leftEye, rightEye);
+
+            // Tai
+            const earGeo = new THREE.ConeGeometry(0.2, 0.4, 4);
+            const leftEar = new THREE.Mesh(earGeo, catMat);
+            leftEar.position.set(-0.35, 1.85, 0.6);
+            leftEar.rotation.z = 0.2;
+            const rightEar = new THREE.Mesh(earGeo, catMat);
+            rightEar.position.set(0.35, 1.85, 0.6);
+            rightEar.rotation.z = -0.2;
+            cat.add(leftEar, rightEar);
+
+            // Đuôi
+            const tailGeo = new THREE.CylinderGeometry(0.06, 0.08, 1, 8);
+            const tail = new THREE.Mesh(tailGeo, catMat);
+            tail.position.set(0, 0.8, -1.1);
+            tail.rotation.x = -Math.PI / 4;
+            tail.name = "tail";
+            cat.add(tail);
+
+            // Chân
+            const legGeo = new THREE.CylinderGeometry(0.12, 0.1, 0.4, 8);
+            const legs = [];
+            const positions = [
+                [-0.3, 0.2, 0.4], [0.3, 0.2, 0.4],
+                [-0.3, 0.2, -0.4], [0.3, 0.2, -0.4]
+            ];
+            positions.forEach((pos, idx) => {
+                const leg = new THREE.Mesh(legGeo, whiteMat);
+                leg.position.set(...pos);
+                leg.castShadow = true;
+                cat.add(leg);
+                legs.push(leg);
+            });
+
+            cat.userData = { body, head, tail, legs, catMat };
+            return cat;
+        }
+
+        const cat = createCat();
+        scene.add(cat);
+
+        // --- 4. HỆ THỐNG HẠT PARTICLE (TRÁI TIM & TỨC GIẬN) ---
+        const particlesGroup = new THREE.Group();
+        scene.add(particlesGroup);
+
+        function spawnHearts() {
+            for (let i = 0; i < 8; i++) {
+                const heartGeo = new THREE.SphereGeometry(0.1, 8, 8);
+                const heartMat = new THREE.MeshBasicMaterial({ color: 0xff4d6d });
+                const heart = new THREE.Mesh(heartGeo, heartMat);
+                heart.position.set(
+                    cat.position.x + (Math.random() - 0.5) * 1.2,
+                    cat.position.y + 1.5 + Math.random() * 0.5,
+                    cat.position.z + (Math.random() - 0.5) * 1.2
+                );
+                heart.userData = { velY: 0.02 + Math.random() * 0.02, life: 1 };
+                particlesGroup.add(heart);
+            }
+        }
+
+        function updateParticles() {
+            particlesGroup.children.forEach((p, idx) => {
+                p.position.y += p.userData.velY;
+                p.userData.life -= 0.02;
+                p.scale.multiplyScalar(0.97);
+                if (p.userData.life <= 0) {
+                    particlesGroup.remove(p);
+                }
+            });
+        }
+
+        // --- 5. LOGIC AI VÀ HÀNH VI CỦA MÈO ---
+        let catState = 'IDLE'; // IDLE, WALKING, EATING, ANGRY
+        let targetPosition = new THREE.Vector3();
+        let actionTimer = 0;
+
+        function setRandomTarget() {
+            targetPosition.set(
+                (Math.random() - 0.5) * 8,
+                0,
+                (Math.random() - 0.5) * 8
+            );
+            catState = 'WALKING';
+        }
+
+        function showStatus(text, duration = 2500) {
+            const bubble = document.getElementById('status-bubble');
+            bubble.innerText = text;
+            bubble.style.opacity = '1';
+            setTimeout(() => { bubble.style.opacity = '0'; }, duration);
+        }
+
+        // --- 6. HỆ THỐNG ĐỒ ĂN & PHẢN ỨNG ---
+        let activeFoodMesh = null;
+
+        function feedCat(type) {
+            if (catState === 'EATING' || catState === 'ANGRY') return;
+
+            if (activeFoodMesh) scene.remove(activeFoodMesh);
+
+            // Vị trí thả đồ ăn phía trước mặt mèo
+            const foodPos = new THREE.Vector3()
+                .copy(cat.position)
+                .add(new THREE.Vector3(0, 0, 2).applyQuaternion(cat.quaternion));
+            foodPos.y = 0.2;
+
+            let foodGeo, foodMat;
+            if (type === 'durian') {
+                foodGeo = new THREE.IcosahedronGeometry(0.3, 0);
+                foodMat = new THREE.MeshStandardMaterial({ color: 0x70e000, roughness: 0.3 });
+            } else if (type === 'fish') {
+                foodGeo = new THREE.ConeGeometry(0.2, 0.6, 8);
+                foodMat = new THREE.MeshStandardMaterial({ color: 0x48cae4 });
+            } else if (type === 'pate') {
+                foodGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.2, 16);
+                foodMat = new THREE.MeshStandardMaterial({ color: 0xd90429 });
+            } else { // sausage
+                foodGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.5, 8);
+                foodMat = new THREE.MeshStandardMaterial({ color: 0xff70a6 });
+            }
+
+            activeFoodMesh = new THREE.Mesh(foodGeo, foodMat);
+            activeFoodMesh.position.copy(foodPos);
+            activeFoodMesh.castShadow = true;
+            scene.add(activeFoodMesh);
+
+            targetPosition.copy(foodPos);
+            catState = 'WALKING_TO_FOOD';
+
+            cat.userData.foodType = type;
+        }
+
+        function handleArriveAtFood() {
+            const type = cat.userData.foodType;
+
+            if (type === 'durian') {
+                // Phản ứng TỨC GIẬN & XÙ LÔNG
+                catState = 'ANGRY';
+                showStatus('😾 Ứ hừ! Sầu riêng hôi quá! (Xù lông)');
+                playSynthSound('angry');
+
+                // Hiệu ứng biến màu & phình to
+                cat.userData.catMat.color.setHex(0xd90429);
+                cat.scale.set(1.3, 1.3, 1.3);
+
+                // Lùi lại
+                setTimeout(() => {
+                    cat.position.sub(new THREE.Vector3(0, 0, 1.5).applyQuaternion(cat.quaternion));
+                }, 400);
+
+                setTimeout(() => {
+                    cat.userData.catMat.color.setHex(0xffb703);
+                    cat.scale.set(1, 1, 1);
+                    if (activeFoodMesh) scene.remove(activeFoodMesh);
+                    catState = 'IDLE';
+                }, 2500);
+
+            } else {
+                // Phản ứng NGON MIỆNG & HẠNH PHÚC
+                catState = 'EATING';
+                showStatus('😸 Ôi ngon quá meow~ ❤️');
+                playSynthSound('happy');
+                spawnHearts();
+
+                setTimeout(() => {
+                    if (activeFoodMesh) scene.remove(activeFoodMesh);
+                    catState = 'IDLE';
+                }, 2000);
+            }
+        }
+
+        // --- 7. ÂM THANH SỔNG (WEB AUDIO API SYNTH) ---
+        let audioCtx = null;
+        let isAudioOn = false;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playSynthSound(type) {
+            if (!isAudioOn || !audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'happy') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'angry') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.5);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+            }
+        }
+
+        // Kêu Meo Meo tự động mỗi 15-20s
+        setInterval(() => {
+            if (catState === 'IDLE' && Math.random() > 0.3) {
+                showStatus('🐾 Meo meo... (Thư giãn)');
+                playSynthSound('happy');
+            }
+        }, 15000);
+
+        // --- 8. GAME LOOP & ANIMATION ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // Cập nhật vị trí status bubble theo mèo
+            if (cat) {
+                const tempV = new THREE.Vector3().copy(cat.position).add(new THREE.Vector3(0, 2, 0));
+                tempV.project(camera);
+                const x = (tempV.x * .5 + .5) * window.innerWidth;
+                const y = (tempV.y * -.5 + .5) * window.innerHeight;
+                const bubble = document.getElementById('status-bubble');
+                bubble.style.left = `${x}px`;
+                bubble.style.top = `${y}px`;
+            }
+
+            // Đuôi vẫy nhẹ
+            if (cat.userData.tail) {
+                cat.userData.tail.rotation.z = Math.sin(time * 3) * 0.2;
+            }
+
+            // AI State Machine
+            if (catState === 'IDLE') {
+                actionTimer += delta;
+                cat.userData.body.position.y = 0.7 + Math.sin(time * 2) * 0.03; // Thở
+                if (actionTimer > 4) {
+                    setRandomTarget();
+                    actionTimer = 0;
+                }
+            } else if (catState === 'WALKING' || catState === 'WALKING_TO_FOOD') {
+                const dir = new THREE.Vector3().subVectors(targetPosition, cat.position);
+                dir.y = 0;
+                const dist = dir.length();
+
+                if (dist > 0.2) {
+                    dir.normalize();
+                    cat.position.addScaledVector(dir, 2 * delta);
+                    
+                    // Quay mặt về hướng di chuyển
+                    const targetAngle = Math.atan2(dir.x, dir.z);
+                    cat.rotation.y = THREE.MathUtils.lerp(cat.rotation.y, targetAngle, 0.1);
+
+                    // Chuyển động chân bước
+                    cat.userData.legs.forEach((leg, i) => {
+                        leg.rotation.x = Math.sin(time * 10 + (i % 2) * Math.PI) * 0.4;
+                    });
+                } else {
+                    // Reset chân
+                    cat.userData.legs.forEach(leg => leg.rotation.x = 0);
+
+                    if (catState === 'WALKING_TO_FOOD') {
+                        handleArriveAtFood();
+                    } else {
+                        catState = 'IDLE';
+                    }
+                }
+            }
+
+            updateParticles();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // --- 9. EVENT LISTENERS ---
+        // Tương tác chạm sàn để mèo đi tới (Tay/chân)
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        window.addEventListener('pointerdown', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            initAudio();
+
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(floor);
+
+            if (intersects.length > 0 && catState !== 'EATING' && catState !== 'ANGRY') {
+                targetPosition.copy(intersects[0].point);
+                catState = 'WALKING';
+                showStatus('🐾 Mèo đang tiến lại nè!');
+            }
+        });
+
+        // Toggle Bối cảnh
+        document.getElementById('btn-env').addEventListener('click', () => {
+            isParkMode = !isParkMode;
+            buildEnvironment();
+        });
+
+        // Toggle Audio
+        document.getElementById('btn-audio').addEventListener('click', (e) => {
+            initAudio();
+            isAudioOn = !isAudioOn;
+            e.target.innerText = isAudioOn ? '🔊 Nhạc Thư Giãn: Bật' : '🔇 Nhạc Thư Giãn: Tắt';
+        });
+
+        // Responsive Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
